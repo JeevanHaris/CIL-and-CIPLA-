@@ -1,0 +1,28 @@
+# Environment variables (contains sensitive API keys and secrets)
+.env
+
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Editor/IDE configurations
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# System files
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

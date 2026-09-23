@@ -1,0 +1,40 @@
+# Environment variables
+.env
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Operating System files
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Large media files (videos, audio recordings)
+*.mp4
+*.webm
+*.avi
+*.mkv
+*.mov
+
+# Runtime vector databases & downloaded documents
+**/data/memory_docs/*.pdf
+**/data/vector_index/
+*.faiss

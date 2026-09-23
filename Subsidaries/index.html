@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ARIA-CIL · CMPDI Document Intelligence</title>
+  <meta name="description" content="Sovereign AI Document Intelligence Platform for CMPDI/CIL — ingest, query, validate and generate reports from mining and geological documents entirely on-premise." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="cmpdi.css" />
+</head>
+<body>
+
+<!-- ═══ AMBIENT BACKGROUND WITH VIDEO ═══ -->
+<div class="bg-canvas">
+  <video id="bg-video" class="bg-video" autoplay muted loop playsinline preload="auto">
+    <source src="hf_20260405_171521_25968ba2-b594-4b32-aab7-f6b69398a6fa.mp4" type="video/mp4" />
+  </video>
+  <div class="bg-video-overlay"></div>
+  <div class="bg-glow gl1"></div>
+  <div class="bg-glow gl2"></div>
+  <div class="bg-glow gl3"></div>
+  <div class="bg-grid"></div>
+</div>
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="sidebar" id="sidebar">
+
+  <div class="logo">
+    <div class="logo-orb">
+      <svg viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="18" stroke="var(--accent)" stroke-width="1.5" />
+        <circle cx="20" cy="20" r="10" fill="var(--accent)" fill-opacity="0.15" />
+        <circle cx="20" cy="20" r="4" fill="var(--accent)" />
+        <line x1="20" y1="2" x2="20" y2="10" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" />
+        <line x1="20" y1="30" x2="20" y2="38" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" />
+        <line x1="2" y1="20" x2="10" y2="20" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" />
+        <line x1="30" y1="20" x2="38" y2="20" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+    </div>
+    <div class="logo-title-group">
+      <span class="logo-text">ARIA</span>
+      <span class="logo-tag">CIL · Intelligence</span>
+    </div>
+  </div>
+
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <button class="nav-item active" data-tab="dashboard" id="nav-dashboard" onclick="switchTab('dashboard')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/>
+        <rect x="14" y="14" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/>
+      </svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-item" data-tab="documents" id="nav-documents" onclick="switchTab('documents')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <span>Documents</span>
+      <span class="nav-pill" id="badge-docs">0</span>
+    </button>
+    <button class="nav-item" data-tab="query" id="nav-query" onclick="switchTab('query')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <path d="M11 8v6M8 11h6"/>
+      </svg>
+      <span>Query</span>
+    </button>
+    <button class="nav-item" data-tab="parl" id="nav-parl" onclick="switchTab('parl')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <polyline points="9 12 11 14 15 10"/>
+      </svg>
+      <span>Parliamentary</span>
+    </button>
+    <button class="nav-item" data-tab="reports" id="nav-reports" onclick="switchTab('reports')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <line x1="9" y1="18" x2="9" y2="14"/>
+        <line x1="15" y1="18" x2="15" y2="16"/>
+      </svg>
+      <span>Reports</span>
+      <span class="nav-pill" id="badge-reports" style="display:none">0</span>
+    </button>
+    <button class="nav-item" data-tab="analytics" id="nav-analytics" onclick="switchTab('analytics')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/>
+        <line x1="12" y1="20" x2="12" y2="4"/>
+        <line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      <span>Analytics</span>
+    </button>
+    <button class="nav-item" data-tab="knowledge" id="nav-knowledge" onclick="switchTab('knowledge')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/>
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+      </svg>
+      <span>Knowledge Base</span>
+    </button>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="ambient-bar">
+      <button class="ambient-toggle-btn" id="ambient-toggle" onclick="toggleBackgroundVideo()" title="Adjust Video Ambience">
+        <svg class="ambient-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span id="ambient-state-text">Ambience: High</span>
+      </button>
+    </div>
+    <div class="sidebar-status-card" id="ollama-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span class="status-text-label" id="status-text">Connecting…</span>
+      <span class="model-chip" id="model-chip">—</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<main class="main" id="main">
+  <!-- Mobile header bar -->
+  <div class="mobile-topbar">
+    <button class="btn-icon mobile-menu-btn" onclick="toggleSidebar()" aria-label="Toggle navigation">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="mobile-brand">ARIA-CIL · Sovereign Intelligence</div>
+  </div>
+
+  <!-- ── DASHBOARD ── -->
+  <div class="pane active" id="pane-dashboard">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Dashboard</h1>
+        <p class="pane-sub">CMPDI/CIL Sovereign Document Intelligence Platform</p>
+      </div>
+      <div class="header-right">
+        <button class="btn-icon" title="Refresh stats" onclick="initDashboard()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI Row -->
+    <div class="kpi-row">
+      <div class="kpi-card" id="kpi-docs">
+        <div class="kpi-icon ki-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val" id="kv-docs">—</div>
+          <div class="kpi-lbl">Documents Indexed</div>
+        </div>
+        <div class="kpi-trend" id="kt-docs"></div>
+      </div>
+      <div class="kpi-card" id="kpi-facts">
+        <div class="kpi-icon ki-amber">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val" id="kv-facts">—</div>
+          <div class="kpi-lbl">Structured Facts</div>
+        </div>
+      </div>
+      <div class="kpi-card" id="kpi-vectors">
+        <div class="kpi-icon ki-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val" id="kv-vectors">—</div>
+          <div class="kpi-lbl">Vector Embeddings</div>
+        </div>
+      </div>
+      <div class="kpi-card" id="kpi-conflicts">
+        <div class="kpi-icon ki-red">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val" id="kv-conflicts">—</div>
+          <div class="kpi-lbl">Data Conflicts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Query Card -->
+    <div class="quick-card">
+      <div class="quick-header">
+        <div class="quick-header-left">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Instant Sovereign Intelligence Query</span>
+        </div>
+        <span class="quick-tag">Local RAG</span>
+      </div>
+      <div class="quick-bar">
+        <input id="qqin" class="quick-input" type="text"
+          placeholder='Ask anything: "What was CIL coal production in 2023-24?"'
+          onkeydown="if(event.key==='Enter')quickQuery()" />
+        <button class="mic-btn" onclick="startDictation('qqin')" title="Voice input" id="mic-qqin">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
+        <button class="btn-primary" id="qq-btn" onclick="quickQuery()">Ask</button>
+      </div>
+      <div class="quick-suggestions">
+        <span class="qs-label">Suggested:</span>
+        <button class="qs-pill" onclick="setQuickQuery('What was CIL coal production target and achievement in 2023-24?')">CIL production 2023-24</button>
+        <button class="qs-pill" onclick="setQuickQuery('Compare CMPDI seismic survey achievements from 2020 to 2024')">CMPDI seismic survey</button>
+        <button class="qs-pill" onclick="setQuickQuery('What are the geological coal resources of CCL?')">CCL resources</button>
+      </div>
+      <div id="qq-answer" class="qq-answer" style="display:none"></div>
+    </div>
+
+    <!-- Two-column lower section -->
+    <div class="dash-grid">
+      <!-- Recent docs -->
+      <div class="surface-card">
+        <div class="card-title-row">
+          <span class="card-title">Recent Documents</span>
+          <button class="btn-link" onclick="switchTab('documents')">View all →</button>
+        </div>
+        <div class="mini-table-wrap">
+          <table class="mini-table" id="dash-docs-tbl">
+            <thead><tr><th>File</th><th>Type</th><th>Facts</th><th>Status</th></tr></thead>
+            <tbody id="dash-docs-body">
+              <tr><td colspan="4" class="tbl-empty">No documents yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <!-- KB Summary -->
+      <div class="surface-card">
+        <div class="card-title-row">
+          <span class="card-title">Knowledge Base Summary</span>
+          <button class="btn-link" onclick="switchTab('knowledge')">Browse →</button>
+        </div>
+        <div id="kb-summary-list" class="kb-summary-list">
+          <div class="empty-hint">Ingest documents to populate</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DOCUMENTS ── -->
+  <div class="pane" id="pane-documents">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Documents</h1>
+        <p class="pane-sub">Upload and manage your CMPDI/CIL document corpus</p>
+      </div>
+      <button class="btn-ghost" onclick="loadDocuments()">↻ Refresh</button>
+    </header>
+
+    <!-- Drop zone -->
+    <div class="dropzone" id="dropzone"
+      ondragover="event.preventDefault();this.classList.add('dz-over')"
+      ondragleave="this.classList.remove('dz-over')"
+      ondrop="handleDrop(event)">
+      <div class="dz-inner">
+        <div class="dz-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+        </div>
+        <p class="dz-title">Drop files here or <span class="dz-link">browse</span></p>
+        <p class="dz-sub">PDF · DOCX · XLSX · CSV · PNG · JPG — Annual Reports, Geological Reports, Data Sheets</p>
+      </div>
+      <input type="file" id="file-inp" style="display:none" multiple
+        accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.png,.jpg,.jpeg,.tiff"
+        onchange="handleFileSelect(this)" />
+    </div>
+
+    <!-- Upload options -->
+    <div class="upload-opts-row">
+      <label class="check-label">
+        <input type="checkbox" id="use-llm"> Use LLM extraction <span class="badge-hint">slower · more accurate</span>
+      </label>
+      <input type="text" class="opt-field" id="org-hint" placeholder="Organization (e.g. CCL)" />
+      <input type="text" class="opt-field" id="period-hint" placeholder="Period (e.g. 2023-24)" />
+    </div>
+
+    <!-- Progress list -->
+    <div id="upload-progress" class="upload-progress"></div>
+
+    <!-- Library table -->
+    <div class="section-row" style="margin-top:2rem">
+      <h2 class="section-title">Document Library</h2>
+      <span class="section-count" id="doc-total-count">0 documents</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="doc-lib-tbl">
+        <thead>
+          <tr><th>Filename</th><th>Type</th><th>Pages</th><th>Facts</th><th>Chunks</th><th>Ingested</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="doc-lib-body">
+          <tr><td colspan="7" class="tbl-empty">No documents indexed yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── QUERY ── -->
+  <div class="pane" id="pane-query">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Query</h1>
+        <p class="pane-sub">Hybrid RAG · evidence tracing · conflict detection</p>
+      </div>
+    </header>
+
+    <div class="query-shell">
+      <!-- Chat column -->
+      <div class="chat-col">
+        <div class="chat-feed" id="chat-feed">
+          <div class="chat-welcome" id="chat-welcome">
+            <div class="cw-icon">🔎</div>
+            <h3>Ask the Knowledge Base</h3>
+            <p>Every answer is traced back to a source document and page.</p>
+            <div class="cw-pills">
+              <button class="cw-pill" onclick="setQ('What was CIL coal production target and achievement in 2023-24?')">CIL production 2023-24</button>
+              <button class="cw-pill" onclick="setQ('Compare CMPDI seismic survey achievements from 2020 to 2024')">CMPDI seismic trend</button>
+              <button class="cw-pill" onclick="setQ('What are the geological coal resources of CCL?')">CCL geological resources</button>
+              <button class="cw-pill" onclick="setQ('Total coal dispatch by all subsidiaries in 2022-23')">Subsidiary dispatch 2022-23</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="query-input-area">
+          <div class="q-filters">
+            <input type="text" class="q-filter-inp" id="qf-org" placeholder="Org filter (e.g. CCL)" />
+            <input type="text" class="q-filter-inp" id="qf-period" placeholder="Period (e.g. 2023-24)" />
+          </div>
+          <div class="q-bar">
+            <textarea id="q-input" class="q-textarea" rows="2"
+              placeholder="Ask anything about CMPDI/CIL documents…"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQuery()}"></textarea>
+            <div class="q-bar-actions">
+              <button class="mic-btn" id="mic-qinput" onclick="startDictation('q-input')" title="Voice input">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd"/></svg>
+              </button>
+              <button class="btn-primary" id="q-send-btn" onclick="sendQuery()">Ask →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Evidence sidebar -->
+      <aside class="evidence-col" id="evidence-col">
+        <div class="ev-header">
+          <span class="ev-title">Evidence</span>
+          <span class="ev-count" id="ev-count">—</span>
+        </div>
+        <div id="ev-list" class="ev-list">
+          <div class="empty-hint" style="padding:1.25rem">Evidence appears after a query</div>
+        </div>
+        <div class="conflict-banner" id="conflict-banner" style="display:none">
+          <div class="cb-title">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+            Data Conflicts
+          </div>
+          <div id="conflict-list"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ── PARLIAMENTARY ── -->
+  <div class="pane" id="pane-parl">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Parliamentary Query</h1>
+        <p class="pane-sub">Agentic multi-step response for Ministry / Lok Sabha / Rajya Sabha queries</p>
+      </div>
+    </header>
+
+    <div class="parl-layout">
+      <div class="parl-form surface-card">
+        <div class="form-group">
+          <label class="form-lbl">Query / Question</label>
+          <div class="textarea-wrap">
+            <textarea id="parl-q" class="form-textarea" rows="5"
+              placeholder="e.g. Provide production target and achievement of all CIL subsidiaries from 2019-20 to 2023-24, along with reasons for shortfall."></textarea>
+            <button class="mic-btn inside-mic" id="mic-parlq" onclick="startDictation('parl-q')" title="Dictate query">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="form-row2">
+          <div class="form-group">
+            <label class="form-lbl">Organization</label>
+            <input type="text" id="parl-org" class="form-inp" placeholder="e.g. CIL" />
+          </div>
+          <div class="form-group">
+            <label class="form-lbl">Year Range</label>
+            <div class="range-row">
+              <input type="number" id="parl-y1" class="form-inp" value="2020" min="2000" max="2030" />
+              <span class="range-sep">to</span>
+              <input type="number" id="parl-y2" class="form-inp" value="2025" min="2000" max="2030" />
+            </div>
+          </div>
+        </div>
+        <button class="btn-primary full-w" id="parl-btn" onclick="submitParl()">Generate Response</button>
+        <div id="parl-spinner" class="spinner-row" style="display:none">
+          <span class="spinner"></span>Generating agentic response…
+        </div>
+      </div>
+
+      <div id="parl-result" class="parl-result surface-card" style="display:none">
+        <div class="result-header">
+          <span class="card-title">Parliamentary Response</span>
+          <div class="result-actions">
+            <button class="btn-ghost sm" onclick="copyText('parl-resp-text')">Copy</button>
+            <button class="btn-ghost sm" id="parl-dl-btn" style="display:none" onclick="downloadParl()">↓ DOCX</button>
+          </div>
+        </div>
+        <div id="parl-resp-text" class="resp-body"></div>
+        <div id="parl-ev-list" class="parl-ev"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPORTS ── -->
+  <div class="pane" id="pane-reports">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Reports</h1>
+        <p class="pane-sub">AI-generated DOCX reports with self-verification and source citations</p>
+      </div>
+      <button class="btn-ghost" onclick="loadReports()">↻ Refresh</button>
+    </header>
+
+    <div class="reports-layout">
+      <div class="report-form-col">
+        <div class="surface-card">
+          <h3 class="card-title" style="margin-bottom:1.25rem">Generate New Report</h3>
+          <div class="form-group">
+            <label class="form-lbl">Report Request</label>
+            <textarea id="rep-req" class="form-textarea" rows="4"
+              placeholder="e.g. Prepare a comprehensive status report on CIL coal production, dispatch and geological exploration from 2020 to 2025 with subsidiary-wise breakdown."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-lbl">Report Title <span style="color:var(--c-text3)">(optional)</span></label>
+            <input type="text" id="rep-title" class="form-inp" placeholder="e.g. CIL Annual Performance Report 2020–2025" />
+          </div>
+          <div class="form-row2">
+            <div class="form-group">
+              <label class="form-lbl">Organization</label>
+              <input type="text" id="rep-org" class="form-inp" placeholder="CIL" />
+            </div>
+            <div class="form-group">
+              <label class="form-lbl">Period</label>
+              <input type="text" id="rep-period" class="form-inp" placeholder="2023-24" />
+            </div>
+          </div>
+          <button class="btn-primary full-w" id="rep-btn" onclick="genReport()">Generate Report</button>
+          <div id="rep-spinner" class="spinner-row" style="display:none">
+            <span class="spinner"></span>Generating report — may take 30–90 seconds…
+          </div>
+        </div>
+      </div>
+      <div class="report-list-col">
+        <div class="section-row">
+          <h2 class="section-title">Generated Reports</h2>
+          <span class="section-count" id="rep-count-lbl">—</span>
+        </div>
+        <div id="rep-list">
+          <div class="empty-hint">No reports generated yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ANALYTICS ── -->
+  <div class="pane" id="pane-analytics">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Analytics</h1>
+        <p class="pane-sub">Word cloud · topic identification · historical trends · subsidiary comparison</p>
+      </div>
+      <button class="btn-ghost" onclick="refreshAnalytics()">↻ Refresh All</button>
+    </header>
+
+    <div class="analytics-grid">
+      <!-- Word Cloud -->
+      <div class="surface-card">
+        <div class="card-title-row">
+          <span class="card-title">Corpus Word Cloud</span>
+          <button class="btn-ghost sm" onclick="loadWordCloud()">↻</button>
+        </div>
+        <div id="wcloud-container" class="wcloud-container">
+          <div class="empty-hint">Load to generate word cloud</div>
+        </div>
+      </div>
+
+      <!-- Topics -->
+      <div class="surface-card">
+        <div class="card-title-row">
+          <span class="card-title">Topic Distribution</span>
+          <button class="btn-ghost sm" onclick="loadTopics()">↻</button>
+        </div>
+        <div id="topics-list" class="topics-list">
+          <div class="empty-hint">Load to identify topics</div>
+        </div>
+      </div>
+
+      <!-- Trend -->
+      <div class="surface-card span2">
+        <div class="card-title-row">
+          <span class="card-title">Historical Trend</span>
+          <div class="ctrl-row">
+            <select id="trend-metric" class="ctrl-select">
+              <option value="coal_production">Coal Production</option>
+              <option value="coal_dispatch">Coal Dispatch</option>
+              <option value="seismic_2d3d">Seismic Survey (2D/3D)</option>
+              <option value="drilling">Drilling</option>
+              <option value="exploration">Exploration</option>
+              <option value="coal_resources">Coal Resources</option>
+            </select>
+            <input type="text" id="trend-org" class="ctrl-inp" placeholder="Org (e.g. CIL)" />
+            <button class="btn-primary sm" onclick="loadTrend()">Load</button>
+          </div>
+        </div>
+        <div id="trend-chart-area">
+          <div class="empty-hint">Select metric and click Load</div>
+        </div>
+      </div>
+
+      <!-- Comparison -->
+      <div class="surface-card span2">
+        <div class="card-title-row">
+          <span class="card-title">Subsidiary Comparison</span>
+          <div class="ctrl-row">
+            <select id="comp-metric" class="ctrl-select">
+              <option value="coal_production">Coal Production</option>
+              <option value="coal_dispatch">Coal Dispatch</option>
+              <option value="exploration">Exploration</option>
+              <option value="drilling">Drilling</option>
+            </select>
+            <input type="text" id="comp-period" class="ctrl-inp" placeholder="Period (e.g. 2023-24)" />
+            <button class="btn-primary sm" onclick="loadComparison()">Compare</button>
+          </div>
+        </div>
+        <div id="comp-chart-area">
+          <div class="empty-hint">Select metric and period to compare subsidiaries</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── KNOWLEDGE BASE ── -->
+  <div class="pane" id="pane-knowledge">
+    <header class="pane-header">
+      <div>
+        <h1 class="pane-title">Knowledge Base</h1>
+        <p class="pane-sub">Browse extracted structured facts · scan data conflicts</p>
+      </div>
+    </header>
+
+    <div class="surface-card" style="margin-bottom:1.5rem">
+      <div class="kb-filter-row">
+        <input type="text" class="form-inp" id="kb-org" placeholder="Organization (e.g. CCL)" />
+        <input type="text" class="form-inp" id="kb-period" placeholder="Period (e.g. 2023-24)" />
+        <input type="text" class="form-inp" id="kb-metric" placeholder="Metric (e.g. coal_production)" />
+        <button class="btn-primary" onclick="loadFacts()">Search Facts</button>
+        <button class="btn-ghost" onclick="loadConflicts()">Scan Conflicts</button>
+      </div>
+    </div>
+
+    <div class="section-row">
+      <h2 class="section-title">Extracted Facts</h2>
+      <span class="section-count" id="fact-count-lbl">—</span>
+    </div>
+    <div class="table-wrap" style="margin-bottom:2rem">
+      <table class="data-table" id="facts-tbl">
+        <thead>
+          <tr><th>Org</th><th>Activity</th><th>Value</th><th>Unit</th><th>Period</th><th>Confidence</th><th>Source</th><th>Pg</th></tr>
+        </thead>
+        <tbody id="facts-body">
+          <tr><td colspan="8" class="tbl-empty">Search facts above</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-row">
+      <h2 class="section-title">Data Conflicts</h2>
+      <span class="section-count" id="conflicts-count-lbl">—</span>
+    </div>
+    <div id="conflicts-area">
+      <div class="empty-hint">Click "Scan Conflicts" to detect cross-document contradictions</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══ TOAST ═══ -->
+<div id="toast" class="toast" role="alert" aria-live="assertive" style="display:none"></div>
+
+<!-- ═══ LOADING OVERLAY ═══ -->
+<div id="loading-ov" class="loading-ov" style="display:none" role="dialog" aria-modal="true" aria-label="Loading">
+  <div class="loading-box">
+    <div class="loading-ring"></div>
+    <p id="loading-msg" class="loading-msg">Processing…</p>
+  </div>
+</div>
+
+<!-- Chart.js — loaded locally, no CDN required in production -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+  onerror="console.info('[ARIA-CIL] Chart.js offline — using inline renderer')"
+  onload="window._chartjs=true"></script>
+
+<script src="cmpdi.js"></script>
+</body>
+</html>
