@@ -529,6 +529,27 @@ a {
 }
 .btn-ghost.sm { padding: 4px 10px; font-size: 11px; }
 
+.btn-del {
+  color: var(--red) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  background: rgba(239, 68, 68, 0.06) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-weight: 500;
+}
+.btn-del:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  color: #ff8080 !important;
+  transform: translateY(-1px);
+}
+.btn-del:active {
+  transform: translateY(0);
+}
+
 .btn-link {
   background: none;
   border: none;

@@ -198,16 +198,76 @@ class EvidenceEngine:
         return evidence
 
     def _match_fact(self, value: float, unit: str, sentence: str) -> Optional[Evidence]:
-        """Match a numerical value against the facts table."""
+        """Match a numerical value against the facts table.
+
+        Requires metric AND unit to agree with what is found in the claim
+        sentence to prevent cross-metric false provenance (e.g. employee count
+        being cited as coal production evidence just because the number matches).
+        """
         # Allow ±0.5% tolerance for rounding
         tol = max(abs(value) * 0.005, 0.01)
+
+        # ── Determine expected metric from sentence context ──────────────
+        sentence_lower = sentence.lower()
+        expected_metric: Optional[str] = None
+        for keyword, canonical in ACTIVITY_TYPES.items():
+            if keyword in sentence_lower:
+                expected_metric = canonical
+                break
+
+        # ── Determine expected organisation from sentence context ────────
+        from ontology import SUBSIDIARY_ALIASES
+        expected_org: Optional[str] = None
+        for alias, code in SUBSIDIARY_ALIASES.items():
+            if re.search(r'\b' + re.escape(alias) + r'\b', sentence_lower):
+                expected_org = code
+                break
+
+        # ── Build SQL with metric + unit filters ──────────────────────────
+        params: list = [value, tol]
+        extra_conditions = ""
+
+        if unit:
+            # Normalise unit for comparison
+            unit_canon = UNIT_CANONICAL.get(unit.lower().strip(), unit)
+            # Allow the fact to have the same canonical unit OR no unit stored
+            extra_conditions += " AND (f.unit = ? OR f.unit = '' OR f.unit IS NULL)"
+            params.append(unit_canon)
+
+        if expected_metric:
+            extra_conditions += " AND f.metric = ?"
+            params.append(expected_metric)
+
+        if expected_org:
+            extra_conditions += " AND (f.organization = ? OR f.organization = '' OR f.organization IS NULL)"
+            params.append(expected_org)
+
         rows = self.kb._conn.execute(
             "SELECT f.*, d.filename FROM facts f "
             "JOIN documents d ON f.doc_id=d.id "
-            "WHERE ABS(f.value - ?) <= ? "
+            f"WHERE ABS(f.value - ?) <= ?{extra_conditions} "
             "ORDER BY f.confidence DESC LIMIT 1",
-            (value, tol),
+            params,
         ).fetchone()
+
+        # Fallback: if strict match fails, relax org constraint only
+        if not rows and expected_org and expected_metric:
+            params_relaxed = [value, tol, unit_canon if unit else None, expected_metric]
+            params_relaxed = [p for p in params_relaxed if p is not None]
+            fallback_sql = (
+                "SELECT f.*, d.filename FROM facts f "
+                "JOIN documents d ON f.doc_id=d.id "
+                "WHERE ABS(f.value - ?) <= ?"
+            )
+            fallback_params: list = [value, tol]
+            if unit:
+                fallback_sql += " AND (f.unit = ? OR f.unit = '' OR f.unit IS NULL)"
+                fallback_params.append(unit_canon if unit else "")
+            if expected_metric:
+                fallback_sql += " AND f.metric = ?"
+                fallback_params.append(expected_metric)
+            fallback_sql += " ORDER BY f.confidence DESC LIMIT 1"
+            rows = self.kb._conn.execute(fallback_sql, fallback_params).fetchone()
 
         if not rows:
             return None

@@ -10,6 +10,14 @@ const API = (window.location.protocol.startsWith('http') && window.location.port
 const $   = id => document.getElementById(id);
 const esc = s  => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const num = n  => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString();
+const fmt = d  => {
+  if (!d) return '—';
+  try {
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return String(d).slice(0, 16);
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return String(d).slice(0, 16); }
+};
 
 /* ── Ambient Video Controls ──────────────────────────────────────── */
 let _ambientMode = localStorage.getItem('aria_ambient_mode') || 'high';
@@ -189,14 +197,20 @@ async function initDashboard() {
     const tbody = $('dash-docs-body');
     if (docs.documents?.length) {
       tbody.innerHTML = docs.documents.slice(0,7).map(d=>`
-        <tr>
-          <td title="${esc(d.filename)}">${esc(d.filename.slice(0,32))}${d.filename.length>32?'…':''}</td>
+        <tr id="dash-row-${esc(d.id)}">
+          <td title="${esc(d.filename)}">${esc(d.filename.slice(0,28))}${d.filename.length>28?'…':''}</td>
           <td><span class="badge b-blue">${esc(d.doc_type||'—')}</span></td>
           <td class="mono text-ac">${d.facts_count ?? '—'}</td>
           <td><span class="badge ${d.indexed?'b-green':'b-amber'}">${d.indexed?'✓ Indexed':'Pending'}</span></td>
+          <td>
+            <button class="btn-ghost sm btn-del" style="padding:2px 8px;font-size:10.5px" title="Delete document"
+              onclick="deleteDoc('${esc(d.id)}','${esc(d.filename)}','dash-row-${esc(d.id)}')">
+              Delete
+            </button>
+          </td>
         </tr>`).join('');
     } else {
-      tbody.innerHTML='<tr><td colspan="4" class="tbl-empty">No documents yet</td></tr>';
+      tbody.innerHTML='<tr><td colspan="5" class="tbl-empty">No documents yet</td></tr>';
     }
   } catch(e) { console.error('Dashboard error:',e); }
 }
@@ -269,16 +283,38 @@ async function uploadFiles(files) {
         item.querySelector('.up-meta').textContent =
           `${d.page_count}p · ${d.facts_extracted} facts · ${d.chunks_indexed} chunks`;
         tag.className='up-tag ut-ok'; tag.textContent='✓ Indexed';
+
+        // Add Delete button directly to the upload card
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-ghost sm btn-del';
+        delBtn.style.marginLeft = 'auto';
+        delBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete`;
+        delBtn.title = 'Remove this document from knowledge base';
+        delBtn.onclick = () => deleteDoc(d.doc_id, file.name, itemId);
+        item.appendChild(delBtn);
+
         toast(`${file.name} ingested — ${d.facts_extracted} facts`, 'ok');
         initDashboard();
         loadDocuments();
       } else {
         tag.className='up-tag ut-err'; tag.textContent='✗ Failed';
+        const disBtn = document.createElement('button');
+        disBtn.className = 'btn-ghost sm';
+        disBtn.style.marginLeft = 'auto';
+        disBtn.textContent = '✕ Dismiss';
+        disBtn.onclick = () => item.remove();
+        item.appendChild(disBtn);
         toast(d.error||'Ingestion failed','err');
       }
     } catch(e) {
       item.querySelector('.up-tag').className='up-tag ut-err';
       item.querySelector('.up-tag').textContent='✗ Network error';
+      const disBtn = document.createElement('button');
+      disBtn.className = 'btn-ghost sm';
+      disBtn.style.marginLeft = 'auto';
+      disBtn.textContent = '✕ Dismiss';
+      disBtn.onclick = () => item.remove();
+      item.appendChild(disBtn);
       toast('Network error: '+e.message,'err');
     }
   }
@@ -297,29 +333,65 @@ async function loadDocuments() {
       tbody.innerHTML='<tr><td colspan="7" class="tbl-empty">No documents indexed yet.</td></tr>'; return;
     }
     tbody.innerHTML = d.documents.map(doc=>`
-      <tr>
-        <td title="${esc(doc.filename)}">${esc(doc.filename.slice(0,36))}${doc.filename.length>36?'…':''}</td>
+      <tr id="doc-row-${esc(doc.id)}">
+        <td title="${esc(doc.filename)}">
+          <div style="display:flex;align-items:center;gap:6px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent);flex-shrink:0">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span style="font-weight:500">${esc(doc.filename.slice(0,36))}${doc.filename.length>36?'…':''}</span>
+          </div>
+        </td>
         <td><span class="badge b-blue">${esc(doc.doc_type||'—')}</span></td>
         <td class="mono">${doc.page_count??'—'}</td>
         <td class="mono text-ac fw6">${doc.facts_count??'—'}</td>
         <td class="mono">${doc.chunk_count??'—'}</td>
         <td class="text-dim" style="font-size:11px">${fmt(doc.upload_time)}</td>
         <td>
-          <button class="btn-ghost sm" style="color:var(--red)"
-            onclick="deleteDoc('${esc(doc.id)}','${esc(doc.filename)}')">Delete</button>
+          <button class="btn-ghost sm btn-del" title="Delete document from knowledge base"
+            onclick="deleteDoc('${esc(doc.id)}','${esc(doc.filename)}','doc-row-${esc(doc.id)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            Delete
+          </button>
         </td>
       </tr>`).join('');
   } catch(e) { console.error('loadDocuments:',e); }
 }
 
-async function deleteDoc(id, name) {
-  if (!confirm(`Delete "${name}" from the knowledge base?`)) return;
+async function deleteDoc(id, name, elementId = null) {
+  if (!confirm(`Delete "${name}" from the knowledge base?\n\nThis will remove the document, all its extracted facts, and vector embeddings.`)) return;
   try {
-    const r = await fetch(`${API}/api/documents/${id}`,{method:'DELETE'});
+    showLoad(`Removing ${name}…`);
+    const r = await fetch(`${API}/api/documents/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const d = await r.json();
-    if (d.success) { toast(`${name} removed`,'ok'); loadDocuments(); initDashboard(); }
-    else toast(d.error||'Delete failed','err');
-  } catch(e) { toast('Error: '+e.message,'err'); }
+    hideLoad();
+    if (d.success) {
+      toast(`"${name}" removed successfully`, 'ok');
+      if (elementId) {
+        const el = $(elementId);
+        if (el) {
+          el.style.opacity = '0';
+          el.style.transform = 'scale(0.96)';
+          el.style.transition = 'all 0.25s ease';
+          setTimeout(() => el.remove(), 250);
+        }
+      }
+      loadDocuments();
+      initDashboard();
+      if ($('pane-knowledge')?.classList.contains('active')) {
+        loadFacts();
+      }
+    } else {
+      toast(d.error || 'Delete failed', 'err');
+    }
+  } catch(e) {
+    hideLoad();
+    toast('Error: ' + e.message, 'err');
+  }
 }
 
 /* ── Query ───────────────────────────────────────────────────────── */
@@ -462,28 +534,38 @@ async function submitParl() {
           </div>`).join('')
       : '';
 
-    // Generate DOCX report too
-    const repR = await fetch(`${API}/api/report`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({request:q,title:'Parliamentary Response',organization:org,period:`${y1}-${String(y2).slice(-2)}`})
-    }).catch(()=>null);
-    if(repR){
-      const repD=await repR.json().catch(()=>({}));
-      if(repD.download_token){_parlToken=repD.download_token;$('parl-dl-btn').style.display='';}
-    }
+    // Enable DOCX download directly on-demand
+    $('parl-dl-btn').style.display = '';
 
-    toast('Parliamentary response generated','ok');
-  } catch(e){toast('Error: '+e.message,'err');}
+    toast('Parliamentary response generated', 'ok');
+  } catch(e){toast('Error: ' + e.message, 'err');}
 
-  btn.disabled=false; btn.textContent='Generate Response';
-  $('parl-spinner').style.display='none';
+  btn.disabled = false; btn.textContent = 'Generate Response';
+  $('parl-spinner').style.display = 'none';
 }
 
-function downloadParl() {
-  if(!_parlToken){toast('No download ready','err');return;}
-  const a=document.createElement('a');
-  a.href=`${API}/api/doc-download/${_parlToken}`;
-  a.download='Parliamentary_Response.docx'; a.click();
+async function downloadParl() {
+  const content = $('parl-resp-text')?.textContent || '';
+  if (!content) { toast('No response text to download', 'err'); return; }
+  try {
+    toast('Preparing DOCX…', '', 1500);
+    const r = await fetch(`${API}/api/export-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content, format: 'docx', title: 'Parliamentary_Response' })
+    });
+    const d = await r.json();
+    if (d.download_token) {
+      const a = document.createElement('a');
+      a.href = `${API}/api/doc-download/${d.download_token}`;
+      a.download = d.filename || 'Parliamentary_Response.docx';
+      a.click();
+    } else {
+      toast(d.error || 'Export failed', 'err');
+    }
+  } catch(e) {
+    toast('Download error: ' + e.message, 'err');
+  }
 }
 function copyText(id){
   navigator.clipboard.writeText($(id)?.textContent||'')

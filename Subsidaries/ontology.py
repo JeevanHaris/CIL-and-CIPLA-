@@ -26,13 +26,33 @@ SUBSIDIARIES = {
     "CMPDIL":"Central Mine Planning and Design Institute Limited",
 }
 
-# All known subsidiary aliases (lowercase for matching)
-SUBSIDIARY_ALIASES: dict[str, str] = {}
-for code, name in SUBSIDIARIES.items():
-    SUBSIDIARY_ALIASES[code.lower()] = code
-    for word in name.lower().split():
-        if len(word) > 4:
-            SUBSIDIARY_ALIASES[word] = code
+# All known subsidiary aliases (lowercase for matching).
+# IMPORTANT: We only add the short code itself as an alias.
+# We do NOT blindly split the full subsidiary name into words — generic words
+# like "limited", "eastern", "coalfields", "central", "western", "northern",
+# "southern", "mahanadi" appear in MULTIPLE subsidiary names and would create
+# false mappings (e.g. "limited" → CMPDIL because it appears last in the loop).
+# Instead we maintain a curated set of unambiguous single-word triggers.
+SUBSIDIARY_ALIASES: dict[str, str] = {
+    # Short codes  (primary, always safe)
+    "ecl":    "ECL",
+    "bccl":   "BCCL",
+    "ccl":    "CCL",
+    "ncl":    "NCL",
+    "wcl":    "WCL",
+    "secl":   "SECL",
+    "mcl":    "MCL",
+    "nec":    "NEC",
+    "cil":    "CIL",
+    "cmpdi":  "CMPDI",
+    "cmpdil": "CMPDIL",
+
+    # Unambiguous unique tokens from full names
+    "bharat":   "BCCL",    # Bharat Coking Coal Limited → BCCL
+    "coking":   "BCCL",    # only BCCL is "coking"
+    "mahanadi": "MCL",     # Mahanadi Coalfields Limited → MCL
+    "secl":     "SECL",    # South Eastern Coalfields
+}
 
 
 # ─── Mining Activity Types ─────────────────────────────────────────

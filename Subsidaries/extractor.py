@@ -125,6 +125,59 @@ _FACT_RE = re.compile(
 )
 
 
+# ─── Unit ↔ Metric Compatibility ─────────────────────────────────
+# Maps canonical metric key → set of ALLOWED canonical units.
+# A fact whose (metric, unit) pair is NOT in this table is either
+# physically impossible or a regex mis-fire and should be dropped.
+_METRIC_UNIT_COMPAT: dict[str, set] = {
+    "coal_production":        {"MT", "BT", "KT", "lakh_T", "T"},
+    "coal_dispatch":          {"MT", "BT", "KT", "lakh_T", "T"},
+    "coal_offtake":           {"MT", "BT", "KT", "lakh_T", "T"},
+    "washery_production":     {"MT", "BT", "KT", "lakh_T", "T"},
+    "coal_resources":         {"MT", "BT", "KT", "lakh_T", "T"},
+    "coal_reserves":          {"MT", "BT", "KT", "lakh_T", "T"},
+    "exploration":            {"line_km", "km", "sq_km", "ha", "MT"},
+    "detailed_exploration":   {"line_km", "km", "sq_km", "ha"},
+    "regional_exploration":   {"line_km", "km", "sq_km", "ha"},
+    "promotional_exploration":{"line_km", "km", "sq_km", "ha"},
+    "drilling":               {"km", "m", "line_km"},
+    "core_drilling":          {"km", "m", "line_km"},
+    "borehole":               {"km", "m", "count"},
+    "seismic_survey":         {"line_km", "km"},
+    "seismic_2d":             {"line_km", "km"},
+    "seismic_3d":             {"line_km", "km"},
+    "seismic_2d3d":           {"line_km", "km"},
+    "geological_report":      {"count"},
+    "financial_turnover":     {"INR_crore"},
+    "financial_profit":       {"INR_crore"},
+    "financial_revenue":      {"INR_crore"},
+    "capital_expenditure":    {"INR_crore", "INR_lakh"},
+    "projects":               {"count"},
+    "mine_count":             {"count"},
+    "colliery_count":         {"count"},
+    "washery_count":          {"count"},
+    "employee_count":         {"count"},
+    # "unknown" has no constraint — handled separately in _validate_fact
+}
+
+# Physically plausible value ranges for each metric
+# (metric → (min_plausible, max_plausible))
+_METRIC_VALUE_RANGE: dict[str, tuple] = {
+    "coal_production":    (0.01,  900.0),   # MT; CIL total ~770 MT
+    "coal_dispatch":      (0.01,  900.0),
+    "coal_offtake":       (0.01,  900.0),
+    "seismic_survey":     (0.01,  50000.0), # line_km
+    "seismic_2d":         (0.01,  50000.0),
+    "seismic_3d":         (0.01,  50000.0),
+    "seismic_2d3d":       (0.01,  50000.0),
+    "drilling":           (0.001, 10000.0), # km
+    "core_drilling":      (0.001, 10000.0),
+    "mine_count":         (1,     1000),
+    "employee_count":     (1,     1_000_000),
+    "financial_turnover": (0.01,  500_000),  # INR crore
+}
+
+
 # ─── Entity Extraction ────────────────────────────────────────────
 
 def extract_entities(text: str) -> List[ExtractedEntity]:
@@ -280,13 +333,14 @@ def extract_numerical_facts_regex(
                 best_dist = dist
                 period = ent.canonical
 
-        # Find nearest activity (within 150 chars)
+        # Find nearest activity (within 400 chars — widened from 150 to
+        # capture metric context that appears in a preceding sentence/heading)
         activity = ""
         metric   = "unknown"
         best_dist = 999
         for ent in activity_entities:
             dist = abs(ent.start - match_pos)
-            if dist < best_dist and dist < 150:
+            if dist < best_dist and dist < 400:
                 best_dist = dist
                 activity = ent.value
                 metric   = ent.canonical
@@ -306,9 +360,47 @@ def extract_numerical_facts_regex(
             confidence=0.75,
             extraction_method="regex",
         )
-        facts.append(fact)
+        if _validate_fact(fact):
+            facts.append(fact)
 
     return facts
+
+
+def _validate_fact(fact: "ExtractedFact") -> bool:
+    """Return False for physically impossible or unreliable facts.
+
+    Rules applied:
+    1. If metric is known (not 'unknown'), the unit MUST be in the
+       allowed set for that metric.  mine_count in MW → rejected.
+    2. If metric is known, the value must be within a plausible range.
+       coal_production = 8.8 MW → rejected (wrong unit, but also
+       caught here if unit check is somehow bypassed).
+    3. Facts with metric='unknown' are kept but their confidence is
+       reduced so they rank below well-classified facts.
+    """
+    metric = fact.metric
+    unit   = fact.unit
+    value  = fact.value
+
+    # Rule 3: unknown metric — keep but penalise
+    if metric == "unknown":
+        fact.confidence = min(fact.confidence, 0.45)
+        return True
+
+    # Rule 1: unit compatibility
+    allowed_units = _METRIC_UNIT_COMPAT.get(metric)
+    if allowed_units:  # empty set means no constraint
+        if unit and unit not in allowed_units:
+            return False   # e.g. mine_count in MW
+
+    # Rule 2: value range plausibility
+    val_range = _METRIC_VALUE_RANGE.get(metric)
+    if val_range:
+        lo, hi = val_range
+        if not (lo <= value <= hi):
+            return False   # e.g. coal_production = 8.8 (in MT context too small)
+
+    return True
 
 
 # ─── LLM-Assisted Extraction ──────────────────────────────────────

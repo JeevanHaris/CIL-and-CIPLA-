@@ -126,7 +126,9 @@ class SourcePriorityResolver:
 # Tolerance thresholds for declaring a conflict
 CRITICAL_DEVIATION_PCT = 5.0   # > 5% → critical
 WARNING_DEVIATION_PCT  = 1.0   # 1–5% → warning
-INFO_DEVIATION_PCT     = 0.0   # any difference → info
+# 0.0 would flag identical values from two imports of the same file.
+# Require at least 0.01% difference to suppress phantom self-conflicts.
+INFO_DEVIATION_PCT     = 0.01  # < 0.01% difference → not a conflict
 
 
 class ConflictDetector:
@@ -201,14 +203,24 @@ class ConflictDetector:
         if not facts:
             return []
 
-        # Group by document to avoid intra-document conflict counting
+        # Group by document, preferring the highest-confidence fact per doc.
         doc_best: Dict[str, dict] = {}
         for f in facts:
             doc_id = f["doc_id"]
             if doc_id not in doc_best or f["confidence"] > doc_best[doc_id]["confidence"]:
                 doc_best[doc_id] = f
 
-        unique_facts = list(doc_best.values())
+        # Further deduplicate by value: if two different doc_ids carry the
+        # exact same value (e.g. the same file was re-ingested with a new ID),
+        # keep only the one with the highest confidence so we don't report a
+        # phantom conflict between a document and itself.
+        value_best: Dict[float, dict] = {}
+        for f in doc_best.values():
+            v = round(f["value"], 6)
+            if v not in value_best or f["confidence"] > value_best[v]["confidence"]:
+                value_best[v] = f
+
+        unique_facts = list(value_best.values())
         if len(unique_facts) < 2:
             return []
 

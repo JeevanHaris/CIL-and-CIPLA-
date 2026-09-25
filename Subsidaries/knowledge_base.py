@@ -199,11 +199,21 @@ class KnowledgeBase:
 
     def delete_document(self, doc_id: str) -> bool:
         try:
+            # Check if doc exists by id or filename
+            doc = self.get_document(doc_id)
+            if not doc:
+                row = self._conn.execute("SELECT * FROM documents WHERE filename=?", (doc_id,)).fetchone()
+                if row:
+                    doc = dict(row)
+                    doc_id = doc["id"]
+                else:
+                    return False
+
             self._conn.execute("DELETE FROM facts  WHERE doc_id=?", (doc_id,))
             self._conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
             self._conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
             self._conn.commit()
-            # Rebuild FAISS after deletion
+            # Rebuild FAISS after deletion while preserving remaining vectors
             self._rebuild_faiss()
             return True
         except Exception as e:
@@ -371,24 +381,49 @@ class KnowledgeBase:
 
     def bm25_search(self, query: str, top_k: int = 10) -> List[dict]:
         """
-        BM25 keyword search over stored chunks.
-        Uses SQLite FTS5 if available, otherwise falls back to LIKE search.
+        BM25-style keyword search over stored chunks.
+        Filters common stopwords so high-frequency words like "the" don't
+        pollute results. Ranks by term-hit count (approximates IDF weighting
+        without requiring FTS5).
         """
-        # Simple keyword matching fallback
-        tokens = query.lower().split()
+        _STOPWORDS = {
+            "the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "or",
+            "but", "not", "is", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did", "will", "would", "could",
+            "should", "may", "might", "shall", "can", "this", "that", "these",
+            "those", "it", "its", "with", "as", "by", "from", "into",
+        }
+        tokens = [
+            t for t in query.lower().split()
+            if len(t) > 1 and t not in _STOPWORDS
+        ]
         if not tokens:
             return []
 
-        # LIKE-based search (works without FTS5)
-        conditions = " OR ".join(["text LIKE ?" for _ in tokens])
-        params = [f"%{t}%" for t in tokens] + [top_k]
-        rows = self._conn.execute(
-            f"SELECT c.*, d.filename FROM chunks c "
+        # Build a CASE-expression that counts how many tokens appear so we can
+        # rank results instead of returning an arbitrary unordered slice.
+        score_expr = " + ".join(
+            [f"(CASE WHEN LOWER(c.text) LIKE ? THEN 1 ELSE 0 END)" for _ in tokens]
+        )
+        where_clause = " OR ".join(["LOWER(c.text) LIKE ?" for _ in tokens])
+
+        like_params = [f"%{t}%" for t in tokens]
+
+        sql = (
+            f"SELECT c.*, d.filename, ({score_expr}) AS bm25_score "
+            f"FROM chunks c "
             f"JOIN documents d ON c.doc_id = d.id "
-            f"WHERE {conditions} LIMIT ?",
-            params,
-        ).fetchall()
-        return [dict(r) for r in rows]
+            f"WHERE {where_clause} "
+            f"ORDER BY bm25_score DESC "
+            f"LIMIT ?"
+        )
+        # Parameters: score_expr needs one set of LIKE params, WHERE clause needs another
+        params = like_params + like_params + [top_k * 3]  # fetch more then re-rank
+        rows = self._conn.execute(sql, params).fetchall()
+        results = [dict(r) for r in rows]
+        # Sort by score descending and return top_k
+        results.sort(key=lambda r: r.get("bm25_score", 0), reverse=True)
+        return results[:top_k]
 
     # ── Vector (FAISS) Operations ────────────────────────────────
 
@@ -429,9 +464,46 @@ class KnowledgeBase:
             print(f"[KB] FAISS save error: {e}")
 
     def _rebuild_faiss(self):
-        """Rebuild FAISS from DB chunks (called after document deletion)."""
-        self._load_faiss()  # reset
-        # Re-index only needed if gateway available; skip for now
+        """Reconstruct FAISS index retaining only live chunks, preserving vector embeddings."""
+        if self._faiss_index is None:
+            return
+        try:
+            import faiss
+            import numpy as np
+
+            # Fetch chunk IDs still present in the DB
+            rows = self._conn.execute("SELECT id FROM chunks").fetchall()
+            live_ids = {r[0] for r in rows}
+
+            if not self._chunk_ids:
+                return
+
+            keep_indices = [i for i, cid in enumerate(self._chunk_ids) if cid in live_ids]
+
+            if len(keep_indices) == len(self._chunk_ids):
+                return  # No vectors removed
+
+            new_index = faiss.IndexFlatIP(EMBED_DIM)
+            if keep_indices and self._faiss_index.ntotal > 0:
+                all_vectors = self._faiss_index.reconstruct_n(0, self._faiss_index.ntotal)
+                kept_vectors = all_vectors[keep_indices]
+                new_index.add(kept_vectors)
+                new_chunk_ids = [self._chunk_ids[i] for i in keep_indices]
+                self._faiss_index = new_index
+                self._chunk_ids = new_chunk_ids
+
+                # Update vector_id in SQLite chunks to reflect new positions
+                for new_vid, cid in enumerate(new_chunk_ids):
+                    self._conn.execute("UPDATE chunks SET vector_id = ? WHERE id = ?", (new_vid, cid))
+                self._conn.commit()
+            else:
+                self._faiss_index = new_index
+                self._chunk_ids = []
+
+            self._save_faiss()
+            print(f"[KB] FAISS index rebuilt: {self._faiss_index.ntotal} vectors retained after document deletion.")
+        except Exception as e:
+            print(f"[KB] _rebuild_faiss error: {e}")
 
     def _embed_text(self, text: str, gateway) -> Optional[list]:
         """Get embedding vector from Ollama."""

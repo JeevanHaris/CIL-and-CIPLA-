@@ -34,7 +34,8 @@ import io
 
 # Suppress HuggingFace symlinks warning on Windows (cosmetic only — caching still works)
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-from faster_whisper import WhisperModel
+# Prevent OpenMP runtime collision between faster-whisper/ctranslate2 and FAISS
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Force UTF-8 output on Windows to avoid UnicodeEncodeError with box-drawing chars
 if sys.platform == "win32":
@@ -53,7 +54,7 @@ from router import ModelRouter
 from orchestrator import Orchestrator, AgentOrchestrator
 from sandbox import CodeSandbox
 from doc_editor import apply_edit, is_edit_intent
-from tool_registry import ToolRegistry
+from tool_registry import ToolRegistry, ToolResult
 from agent_state import AgentState
 
 # ─── CMPDI/CIL Domain Modules ─────────────────────────
@@ -140,14 +141,105 @@ _report_store: dict[str, object] = {}
 
 print(f"[CMPDI] Knowledge base: {knowledge_base.stats()}")
 
-# ─── STT: Load faster-whisper once at startup ──────────
-# Kept for query dictation (mic button) — not primary UI
-WHISPER_MODEL = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
+# ── Register CMPDI knowledge-base tools so the parliamentary / report
+#    agent can see facts from /api/ingest — not just the in-memory _doc_store.
+def _tool_search_kb(query: str, metric: str = "",
+                   organization: str = "", period: str = "",
+                   top_k: int = 10) -> "ToolResult":
+    """Search the CMPDI knowledge base (facts + chunks) for a query.
+
+    This is the correct tool for parliamentary queries, 5-year comparisons,
+    and any question about ingested CIL/subsidiary documents.  Unlike
+    search_documents (which searches the in-memory upload cache), this
+    function queries the persistent SQLite knowledge base.
+
+    Args:
+        query:        Natural language question.
+        metric:       Optional metric filter (e.g. 'coal_production').
+        organization: Optional org filter (e.g. 'CCL', 'CIL').
+        period:       Optional period filter (e.g. '2023-24').
+        top_k:        Max results to return.
+    """
+    # ToolResult imported at module level
+    lines = []
+
+    # 1. Structured fact lookup
+    facts = knowledge_base.query_facts(
+        metric=metric or None,
+        organization=organization or None,
+        period=period or None,
+        min_confidence=0.5,
+        limit=top_k,
+    )
+    if facts:
+        lines.append(f"=== Structured Facts ({len(facts)}) ===")
+        for f in facts:
+            lines.append(
+                f"[FACT] {f.get('organization','')} | {f.get('metric','')} | "
+                f"{f.get('value','')} {f.get('unit','')} | {f.get('period','')} | "
+                f"excerpt: {str(f.get('excerpt',''))[:150]}"
+            )
+
+    # 2. Chunk search for narrative context
+    chunks = knowledge_base.bm25_search(query, top_k=top_k)
+    if chunks:
+        lines.append(f"\n=== Relevant Passages ({len(chunks)}) ===")
+        for c in chunks:
+            lines.append(
+                f"[{c.get('filename','?')} p{c.get('page_num','')}] "
+                f"{str(c.get('text',''))[:300]}"
+            )
+
+    if not lines:
+        return ToolResult(
+            "search_kb",
+            output="No results found in the knowledge base for this query. "
+                   "Upload relevant documents via the dashboard first."
+        )
+    return ToolResult("search_kb", output="\n".join(lines))
+
+
+tool_registry.register(
+    name="search_kb",
+    fn=_tool_search_kb,
+    description=(
+        "Search the CMPDI/CIL knowledge base (persistent SQLite facts + "
+        "text chunks from ingested documents). Use this for parliamentary "
+        "queries, 5-year comparisons, subsidiary data, and any question about "
+        "ingested annual reports or ministry documents. "
+        "Preferred over search_documents for all CIL-domain questions."
+    ),
+    parameters=[
+        {"name": "query",        "type": "str",  "required": True,
+         "description": "Natural language question."},
+        {"name": "metric",       "type": "str",  "required": False,
+         "description": "Metric key filter e.g. 'coal_production'."},
+        {"name": "organization", "type": "str",  "required": False,
+         "description": "Organisation code e.g. 'CCL', 'CIL'."},
+        {"name": "period",       "type": "str",  "required": False,
+         "description": "Fiscal period e.g. '2023-24'."},
+        {"name": "top_k",        "type": "int",  "required": False,
+         "description": "Max results (default 10)."},
+    ],
 )
-print("[CMPDI] faster-whisper STT loaded (query dictation only)")
+print(f"[CMPDI] ToolRegistry now has {len(tool_registry.list_tools())} tools "
+      "(including search_kb for parliamentary agent)")
+
+# ─── STT: Lazy-load faster-whisper on first voice request ──
+_whisper_model = None
+
+def get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        print("[CMPDI] Loading faster-whisper STT on-demand...")
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel(
+            "base",
+            device="cpu",
+            compute_type="int8"
+        )
+    return _whisper_model
+
 
 # NOTE: _doc_store, _download_store, and DOWNLOAD_TTL_SECONDS
 # are now initialised above (before ToolRegistry) so the registry
@@ -1009,7 +1101,8 @@ def transcribe_audio():
         tmp_path = tmp.name
 
     try:
-        segments, info = WHISPER_MODEL.transcribe(
+        whisper = get_whisper_model()
+        segments, info = whisper.transcribe(
             tmp_path,
             language="en",
             beam_size=1,        # fastest setting - good enough for command-style speech
@@ -1201,23 +1294,28 @@ def ingest_document():
         chunks_added = knowledge_base.add_chunks(doc.doc_id, chunks, gateway=gateway)
         knowledge_base.mark_indexed(doc.doc_id)
 
-        # Step 5: Quick conflict check
+        # Step 5: Quick conflict check — filter conflicts that involve the new doc
         conflicts = conflict_detector.detect_all()
-        new_conflicts = [c for c in conflicts
-                         if any(f.doc_id == doc.doc_id for f in [] )]
+        new_conflicts = [
+            c for c in conflicts
+            if any(s.doc_id == doc.doc_id for s in c.sources)
+        ]
 
-        print(f"[Ingest] {f.filename}: {facts_added} facts, {chunks_added} chunks")
+        print(f"[Ingest] {doc.filename}: {facts_added} facts, {chunks_added} chunks, "
+              f"{len(new_conflicts)} new conflict(s)")
         return jsonify({
-            "success":      True,
-            "doc_id":       doc.doc_id,
-            "filename":     f.filename,
-            "page_count":   doc.page_count,
-            "char_count":   doc.char_count,
-            "ocr_applied":  doc.ocr_applied,
+            "success":         True,
+            "doc_id":          doc.doc_id,
+            "filename":        doc.filename,
+            "page_count":      doc.page_count,
+            "char_count":      doc.char_count,
+            "ocr_applied":     doc.ocr_applied,
             "facts_extracted": facts_added,
             "chunks_indexed":  chunks_added,
-            "metadata":     doc.metadata,
-            "ingestion_time_s": doc.ingestion_time_s,
+            "metadata":        doc.metadata,
+            "ingestion_time_s":doc.ingestion_time_s,
+            "new_conflicts":   len(new_conflicts),
+            "conflict_details": [c.to_dict() for c in new_conflicts[:5]],
         })
 
     except Exception as e:
@@ -1238,6 +1336,12 @@ def list_documents():
 @app.route("/api/documents/<doc_id>", methods=["DELETE"])
 def delete_document(doc_id):
     """Remove a document and all its facts/chunks from the knowledge base."""
+    # Also remove from in-memory session doc store if present
+    _doc_store.pop(doc_id, None)
+    for k in list(_doc_store.keys()):
+        if _doc_store[k].get("filename") == doc_id:
+            _doc_store.pop(k, None)
+
     success = knowledge_base.delete_document(doc_id)
     if success:
         return jsonify({"success": True, "doc_id": doc_id})
@@ -1399,26 +1503,71 @@ def parliamentary_query():
     )
 
     try:
-        # Use the full AgentOrchestrator for parliamentary queries
-        state = __import__("agent_state").AgentState(
-            goal=query,
-            uploaded_files={},
+        # 1. Retrieve structured facts from knowledge base
+        facts = knowledge_base.query_facts(
+            organization=organization or None,
+            min_confidence=0.4,
+            limit=25,
         )
-        _agent_runs[state.run_id] = {"state": state, "synthesis": None, "done": False}
 
-        state, synthesis = agent_orchestrator.run(query, state, system_prompt=system)
+        # 2. Retrieve textual excerpts via hybrid search
+        chunks = knowledge_base.hybrid_search(query, gateway=gateway, top_k=8)
 
-        # Evidence trace the synthesis
+        context_parts = []
+        if facts:
+            context_parts.append("=== STRUCTURED FACTS ===")
+            for f in facts[:15]:
+                context_parts.append(
+                    f"[FACT] {f.get('organization','')} | {f.get('activity') or f.get('metric','')} | "
+                    f"{f.get('value','')} {f.get('unit','')} | Period: {f.get('period','')} | Source: {f.get('doc_id','')}"
+                )
+        if chunks:
+            context_parts.append("\n=== RELEVANT REPORT EXCERPTS ===")
+            for c in chunks[:6]:
+                context_parts.append(
+                    f"[{c.get('filename','?')} p{c.get('page_num','')}] {c.get('text','')[:450]}"
+                )
+
+        context_str = "\n".join(context_parts) if context_parts else "No specific documents matched in the knowledge base."
+
+        period_note = f"for years {period_range[0]} to {period_range[1]}" if len(period_range) == 2 else ""
+        org_note = f"pertaining to {organization}" if organization else ""
+
+        single_run_prompt = (
+            f"{CMPDI_SYSTEM_PROMPT}\n\n"
+            f"You are preparing an official Parliamentary / Ministry Response {org_note} {period_note}.\n\n"
+            f"=== CONTEXT FROM SOVEREIGN KNOWLEDGE BASE ===\n"
+            f"{context_str}\n"
+            f"=== END CONTEXT ===\n\n"
+            f"PARLIAMENTARY QUESTION:\n{query}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"Provide a complete, factual, single-pass response based strictly on the context:\n"
+            f"1. Executive Direct Answer\n"
+            f"2. Supporting Data Table (Markdown table format with columns for Subsidiary, Metric, Period, Target, Achievement where available)\n"
+            f"3. Key Reasons / Analysis for any variances or shortfalls\n"
+            f"4. Official Citations & Data Gaps / Caveats\n\n"
+            f"Answer:"
+        )
+
+        # 3. Single-run LLM call (1 run only, no loops)
+        gw_response = gateway.call(
+            DEFAULT_MODEL,
+            [{"role": "user", "content": single_run_prompt}],
+        )
+        synthesis = gw_response.content
+
+        # 4. Evidence trace the synthesis
         evidence_bundle = evidence_engine.find_evidence_for_answer(synthesis, query)
 
-        _agent_runs[state.run_id]["synthesis"] = synthesis
-        _agent_runs[state.run_id]["done"]      = True
+        run_id = str(uuid.uuid4())
+        _agent_runs[run_id] = {"synthesis": synthesis, "done": True}
 
         return jsonify({
             "response":  synthesis,
             "evidence":  evidence_bundle.to_dict(),
-            "run_id":    state.run_id,
-            "steps":     len(state.step_results) if hasattr(state, "step_results") else 0,
+            "run_id":    run_id,
+            "steps":     1,
+            "latency":   round(gw_response.latency, 2),
         })
 
     except Exception as e:
@@ -1603,6 +1752,70 @@ def kb_stats():
     return jsonify(knowledge_base.stats())
 
 
+# ─── Knowledge Base Cleanup ────────────────────────────
+@app.route("/api/kb/clean", methods=["POST"])
+def kb_clean():
+    """
+    Purge physically impossible facts from the existing knowledge base.
+
+    Applies the same unit-metric plausibility rules as the fixed extractor:
+      - mine_count in MW → deleted
+      - coal_production in MW → deleted
+      - metric=unknown with MW unit → deleted
+      - metric=unknown facts have confidence already penalised by extractor
+
+    Useful after upgrading from an old DB with bad shipped data.
+    Returns counts of deleted and surviving facts.
+
+    Body: {} (no parameters required)
+    """
+    from extractor import _METRIC_UNIT_COMPAT, _METRIC_VALUE_RANGE
+
+    conn = knowledge_base._conn
+    all_facts = conn.execute(
+        "SELECT id, metric, unit, value FROM facts"
+    ).fetchall()
+
+    to_delete = []
+    for row in all_facts:
+        fact_id = row["id"]
+        metric  = row["metric"] or "unknown"
+        unit    = row["unit"]   or ""
+        value   = row["value"]  or 0.0
+
+        if metric == "unknown":
+            # Keep unknown-metric facts but don't delete them here;
+            # their confidence was already penalised at extraction time.
+            continue
+
+        # Rule 1: unit compatibility
+        allowed = _METRIC_UNIT_COMPAT.get(metric)
+        if allowed and unit and unit not in allowed:
+            to_delete.append(fact_id)
+            continue
+
+        # Rule 2: value range
+        val_range = _METRIC_VALUE_RANGE.get(metric)
+        if val_range:
+            lo, hi = val_range
+            if not (lo <= value <= hi):
+                to_delete.append(fact_id)
+
+    deleted = 0
+    for fact_id in to_delete:
+        conn.execute("DELETE FROM facts WHERE id=?", (fact_id,))
+        deleted += 1
+    conn.commit()
+
+    remaining = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+    print(f"[KB Clean] Deleted {deleted} impossible facts; {remaining} remain.")
+    return jsonify({
+        "deleted":   deleted,
+        "remaining": remaining,
+        "message":   f"Purged {deleted} physically impossible facts from knowledge base.",
+    })
+
+
 # ─── Run ──────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
@@ -1647,4 +1860,4 @@ if __name__ == "__main__":
         print("[WARNING] Could not reach Ollama. Is it installed and running?")
         print("[WARNING] Install: https://ollama.com/download  |  Then: ollama pull llama3.2")
 
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)

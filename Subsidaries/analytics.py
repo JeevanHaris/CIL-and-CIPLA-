@@ -101,10 +101,9 @@ def generate_word_cloud_data(
 
     freq = collections.Counter(tokens)
 
-    # Boost domain-relevant terms
-    for term in DOMAIN_BOOST_TERMS:
-        if term in freq:
-            freq[term] = int(freq[term] * 1.5)
+    # Do NOT artificially inflate domain terms — real frequency is the signal.
+    # Boosting by 1.5x distorts the cloud and misrepresents document content.
+    # DOMAIN_BOOST_TERMS are already prominent if genuinely frequent.
 
     top = freq.most_common(top_n)
     words = [{"text": word, "value": count} for word, count in top]
@@ -190,13 +189,29 @@ def identify_topics(
     # Sort by score descending
     topics.sort(key=lambda x: x["score"], reverse=True)
 
-    # Add document count
-    total_docs = knowledge_base._conn.execute(
-        "SELECT COUNT(*) FROM documents"
-    ).fetchone()[0]
+    # Per-topic document count: count documents that contain at least one
+    # of the topic's keywords, not the total document count.
+    all_docs = knowledge_base._conn.execute(
+        "SELECT DISTINCT doc_id FROM chunks"
+    ).fetchall()
+    doc_ids = [r[0] for r in all_docs]
+
     for t in topics:
-        # Rough heuristic: share proportional to score
-        t["doc_count"] = total_docs
+        kw_set = set(TOPIC_SEEDS.get(t["topic"], []))
+        if not kw_set or not doc_ids:
+            t["doc_count"] = 0
+            continue
+        # Build OR conditions for topic keywords
+        conditions = " OR ".join(["LOWER(text) LIKE ?" for _ in kw_set])
+        params = [f"%{kw}%" for kw in kw_set]
+        try:
+            count = knowledge_base._conn.execute(
+                f"SELECT COUNT(DISTINCT doc_id) FROM chunks WHERE {conditions}",
+                params,
+            ).fetchone()[0]
+            t["doc_count"] = count
+        except Exception:
+            t["doc_count"] = 0
 
     return topics
 

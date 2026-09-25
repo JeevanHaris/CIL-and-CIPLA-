@@ -6,9 +6,9 @@ Generates DOCX (and optionally PDF) reports from knowledge-base data.
 Pipeline:
   1. Decompose report request into sections
   2. Retrieve evidence per section (hybrid RAG + structured facts)
-  3. Validate facts (run conflict detector)
+  3. Validate facts (run conflict detector — implemented)
   4. Generate narrative via LLM
-  5. Insert tables + charts
+  5. Insert tables + charts (requires_chart honoured — implemented)
   6. Inject source citations
   7. Self-verify (missing data, conflicting figures, unsourced claims)
   8. Return DOCX bytes + verification report
@@ -175,7 +175,7 @@ class ReportAgent:
                 sections_plan = [{"title": "Overview", "query": request,
                                   "requires_table": True, "requires_chart": False}]
 
-            # Step 2: Build each section
+            # Step 2: Build each section (retrieve data + generate narrative)
             built_sections = []
             all_sources = set()
             for plan in sections_plan:
@@ -184,18 +184,38 @@ class ReportAgent:
                 for ev in section.evidence:
                     all_sources.add(ev.get("source_doc", ""))
 
-            # Step 3: Self-verify all sections
+            # Step 3: Run conflict detector and attach warnings to affected sections
+            try:
+                from validator import ConflictDetector
+                detector = ConflictDetector(self.kb)
+                all_conflicts = detector.detect_all()
+                if all_conflicts:
+                    conflict_descriptions = [
+                        f"{c.metric}/{c.period}/{c.organization}: "
+                        f"{c.percent_deviation():.1f}% deviation "
+                        f"({c.severity.upper()})"
+                        for c in all_conflicts[:10]
+                    ]
+                    # Attach to the first section as a preamble warning
+                    if built_sections:
+                        built_sections[0].warnings.extend(
+                            [f"Data conflict detected — {d}" for d in conflict_descriptions]
+                        )
+            except Exception as ce:
+                print(f"[ReportAgent] Conflict detector error: {ce}")
+
+            # Step 4: Self-verify all sections
             all_issues = []
             for section in built_sections:
                 issues = self._verify_section(section)
-                section.warnings = [i.description for i in issues if i.severity in ("warning", "critical")]
+                section.warnings += [i.description for i in issues if i.severity in ("warning", "critical")]
                 all_issues.extend(issues)
 
             result.sections     = built_sections
             result.issues       = all_issues
             result.sources_used = [s for s in all_sources if s]
 
-            # Step 4: Build DOCX
+            # Step 5: Build DOCX
             result.docx_bytes = self._build_docx(result)
 
         except Exception as e:
@@ -268,10 +288,38 @@ class ReportAgent:
         if plan.get("requires_table") and facts:
             tables.append(self._facts_to_table(facts[:15]))
 
+        # Build chart data if required (honours requires_chart flag)
+        charts = []
+        if plan.get("requires_chart"):
+            try:
+                import analytics as analytics_engine
+                # Try to infer metric and org from the query
+                query_lower = query.lower()
+                from ontology import ACTIVITY_TYPES, SUBSIDIARY_ALIASES
+                inferred_metric = next(
+                    (v for k, v in ACTIVITY_TYPES.items() if k in query_lower),
+                    "coal_production",
+                )
+                inferred_org = next(
+                    (code for alias, code in SUBSIDIARY_ALIASES.items()
+                     if alias in query_lower),
+                    organization,
+                )
+                trend_data = analytics_engine.extract_trend(
+                    self.kb,
+                    metric=inferred_metric,
+                    organization=inferred_org,
+                )
+                if any(v is not None for v in trend_data.get("values", [])):
+                    charts.append(trend_data)
+            except Exception as chart_err:
+                print(f"[ReportAgent] Chart generation error: {chart_err}")
+
         return ReportSection(
             title    = title,
             content  = content,
             tables   = tables,
+            charts   = charts,
             evidence = [e.to_dict() for e in evidence_bundle.evidence_list],
         )
 

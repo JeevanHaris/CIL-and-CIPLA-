@@ -105,8 +105,9 @@ ROUTING_TABLE = [
 class ModelRouter:
     """Routes tasks to the best available model based on content analysis."""
 
-    def __init__(self, default_model="llama3.2"):
+    def __init__(self, default_model="llama3.2", single_model_mode=True):
         self.default_model = default_model
+        self.single_model_mode = single_model_mode
         self._routing_table = ROUTING_TABLE
         self._route_log = []   # last N routing decisions for debugging
 
@@ -129,6 +130,17 @@ class ModelRouter:
                 task_type="user_selected",
                 confidence=1.0,
                 reason=f"User explicitly selected {force_model}",
+            )
+            self._log_decision(task_text, decision)
+            return decision
+
+        # In single model mode, conserve RAM by avoiding model switches in Ollama
+        if self.single_model_mode and not has_image:
+            decision = RoutingDecision(
+                model=self.default_model,
+                task_type="single_model",
+                confidence=1.0,
+                reason=f"Single-model mode active (RAM optimization): using {self.default_model}",
             )
             self._log_decision(task_text, decision)
             return decision
